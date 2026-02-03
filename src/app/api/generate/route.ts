@@ -1254,7 +1254,7 @@ async function generateWithFalQueue(
  * WaveSpeed task status from API
  * Values: created → processing → completed/failed
  */
-type WaveSpeedStatus = "created" | "pending" | "processing" | "completed" | "failed";
+type WaveSpeedStatus = "created" | "pending" | "processing" | "completed" | "failed" | "error" | "cancelled" | "queued" | "starting";
 
 /**
  * WaveSpeed submit response
@@ -1342,9 +1342,12 @@ async function generateWithWaveSpeed(
   if (hasDynamicInputs) {
     for (const [key, value] of Object.entries(input.dynamicInputs!)) {
       if (value !== null && value !== undefined && value !== '') {
-        // If the key is "images" and value is not an array, wrap it
         if (key === "images" && !Array.isArray(value)) {
           payload[key] = [value];
+        } else if (typeof value === "string" && /^\d+$/.test(value)) {
+          payload[key] = parseInt(value, 10);
+        } else if (typeof value === "string" && /^\d+\.\d+$/.test(value)) {
+          payload[key] = parseFloat(value);
         } else {
           payload[key] = value;
         }
@@ -1420,7 +1423,9 @@ async function generateWithWaveSpeed(
   // Poll for completion using the URL from the API response, or construct it
   // Status flow: created → processing → completed/failed
   const maxWaitTime = 5 * 60 * 1000; // 5 minutes
-  const pollInterval = 1000; // 1 second
+  const basePollInterval = 1000;
+  const maxPollInterval = 5000;
+  let currentPollInterval = basePollInterval;
   const startTime = Date.now();
   let lastStatus = "";
 
@@ -1435,7 +1440,9 @@ async function generateWithWaveSpeed(
       };
     }
 
-    await new Promise((resolve) => setTimeout(resolve, pollInterval));
+    await new Promise((resolve) => setTimeout(resolve, currentPollInterval));
+    // Increase interval: 1s -> 1.5s -> 2.25s -> 3.375s -> 5s (cap)
+    currentPollInterval = Math.min(currentPollInterval * 1.5, maxPollInterval);
 
     // Use provided poll URL if available, otherwise construct it
     const pollUrl = providedPollUrl || `${WAVESPEED_API_BASE}/predictions/${taskId}/result`;
@@ -1494,17 +1501,20 @@ async function generateWithWaveSpeed(
       break;
     }
 
-    // Check if task failed
-    if (currentStatus === "failed") {
-      const failureReason = currentError || pollData.message || "Generation failed";
-      console.error(`[API:${requestId}] WaveSpeed task failed: ${failureReason}`);
+    // Check if task failed (handle all terminal failure states)
+    if (currentStatus === "failed" || currentStatus === "error" || currentStatus === "cancelled") {
+      const failureReason = currentError || pollData.message || `Generation ${currentStatus}`;
+      console.error(`[API:${requestId}] WaveSpeed task ${currentStatus}: ${failureReason}`);
       return {
         success: false,
         error: `${input.model.name}: ${failureReason}`,
       };
     }
 
-    // Continue polling for "created" or "processing" status
+    // Log warning for unknown statuses
+    if (currentStatus && !["created", "processing", "pending", "queued", "starting"].includes(currentStatus)) {
+      console.warn(`[API:${requestId}] Unknown WaveSpeed status: ${currentStatus}`);
+    }
   }
 
   // Safety check (should never happen since we break on completed)
@@ -1546,6 +1556,7 @@ async function generateWithWaveSpeed(
 
   // Fetch the first output and convert to base64
   const outputUrl = outputUrls[0];
+  const MAX_DOWNLOAD_SIZE = 100 * 1024 * 1024; // 100MB
   console.log(`[API:${requestId}] Fetching WaveSpeed output from: ${outputUrl.substring(0, 80)}...`);
 
   const outputResponse = await fetch(outputUrl);
@@ -1555,6 +1566,19 @@ async function generateWithWaveSpeed(
       success: false,
       error: `Failed to fetch output: ${outputResponse.status}`,
     };
+  }
+
+  // Check Content-Length before downloading full body
+  const contentLengthHeader = outputResponse.headers.get("content-length");
+  if (contentLengthHeader) {
+    const contentLength = parseInt(contentLengthHeader, 10);
+    if (contentLength > MAX_DOWNLOAD_SIZE) {
+      console.log(`[API:${requestId}] Output too large (${(contentLength / 1024 / 1024).toFixed(1)}MB), returning URL`);
+      return {
+        success: true,
+        outputs: [{ type: isVideoModel ? "video" : "image", data: outputUrl, url: outputUrl }],
+      };
+    }
   }
 
   const outputArrayBuffer = await outputResponse.arrayBuffer();

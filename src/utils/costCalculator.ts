@@ -155,6 +155,16 @@ export function calculatePredictedCost(
       }
     }
 
+    if (provider === "wavespeed") {
+      const wavespeedPricing: Record<string, { unitCost: number; unit: string }> = {
+        "wavespeed-ai/flux-dev": { unitCost: 0.003, unit: "image" },
+        "wavespeed-ai/flux-schnell": { unitCost: 0.001, unit: "image" },
+        "wavespeed-ai/sd3-medium": { unitCost: 0.002, unit: "image" },
+        "wavespeed-ai/wan-2.1": { unitCost: 0.05, unit: "video" },
+      };
+      return wavespeedPricing[modelId] || null;
+    }
+
     // No pricing available (e.g., Replicate)
     return null;
   }

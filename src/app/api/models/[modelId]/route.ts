@@ -28,6 +28,8 @@ import { ModelParameter, ModelInput } from "@/lib/providers/types";
 import {
   getCachedWaveSpeedSchema,
   setCachedWaveSpeedSchema,
+  getCachedModels,
+  getCacheKey,
   WaveSpeedApiSchema,
 } from "@/lib/providers/cache";
 
@@ -642,7 +644,15 @@ async function fetchWaveSpeedSchema(
     }
   }
 
-  // If no cache and we have an API key, try fetching the model directly
+  // Check model list cache - if it exists but has no schema for this model,
+  // the API didn't provide one. Skip the redundant API call.
+  const modelListCache = getCachedModels(getCacheKey("wavespeed"));
+  if (modelListCache) {
+    console.log(`[WaveSpeed Schema] Model list cached but no schema for ${modelId}, using static fallback`);
+    return getStaticWaveSpeedSchema(modelId);
+  }
+
+  // No cache at all - fetch from API
   if (apiKey) {
     try {
       console.log(`[WaveSpeed Schema] Fetching schema for ${modelId} from API`);

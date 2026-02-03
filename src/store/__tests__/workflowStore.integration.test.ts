@@ -2438,4 +2438,31 @@ describe("workflowStore integration tests", () => {
       expect(mockFetch).toHaveBeenCalledTimes(3);
     });
   });
+
+  describe("WaveSpeed model in nanoBanana node", () => {
+    it("should store WaveSpeed model selection in nanoBanana node data", () => {
+      useWorkflowStore.setState({
+        nodes: [
+          createTestNode("nanoBanana-1", "nanoBanana", {
+            selectedModel: {
+              provider: "wavespeed",
+              modelId: "wavespeed-ai/flux-dev",
+              displayName: "FLUX Dev",
+            },
+          }),
+        ],
+        edges: [],
+      });
+
+      const store = useWorkflowStore.getState();
+      const node = store.nodes.find((n) => n.id === "nanoBanana-1");
+
+      expect(node).toBeDefined();
+      expect((node!.data as Record<string, unknown>).selectedModel).toEqual({
+        provider: "wavespeed",
+        modelId: "wavespeed-ai/flux-dev",
+        displayName: "FLUX Dev",
+      });
+    });
+  });
 });

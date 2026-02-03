@@ -424,6 +424,36 @@ describe("CostDialog", () => {
       expect(screen.getByText(/Pricing varies by model, hardware, and usage/)).toBeInTheDocument();
     });
 
+    it("should show WaveSpeed items in external providers section", () => {
+      render(
+        <CostDialog
+          predictedCost={{
+            totalCost: 0.006,
+            breakdown: [
+              {
+                provider: "wavespeed",
+                modelId: "wavespeed-ai/flux-dev",
+                modelName: "FLUX Dev",
+                count: 2,
+                unitCost: 0.003,
+                unit: "image",
+                subtotal: 0.006,
+              },
+            ],
+            nodeCount: 2,
+            unknownPricingCount: 0,
+          }}
+          incurredCost={0}
+          onClose={vi.fn()}
+        />
+      );
+
+      expect(screen.getByText("External Providers")).toBeInTheDocument();
+      expect(screen.getByText("WaveSpeed")).toBeInTheDocument();
+      expect(screen.getByText("W")).toBeInTheDocument();
+      expect(screen.getByText(/2x FLUX Dev/)).toBeInTheDocument();
+    });
+
     it("should not show External Providers section when no external models", () => {
       render(
         <CostDialog

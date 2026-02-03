@@ -19,58 +19,12 @@
 import {
   ProviderInterface,
   ProviderModel,
-  ModelCapability,
   GenerationInput,
   GenerationOutput,
   registerProvider,
 } from "@/lib/providers";
 
-const WAVESPEED_API_BASE = "https://api.wavespeed.ai/api/v3";
 const PROVIDER_SETTINGS_KEY = "node-banana-provider-settings";
-
-/**
- * WaveSpeed task status from API
- */
-type WaveSpeedStatus = "pending" | "processing" | "completed" | "failed";
-
-/**
- * WaveSpeed task response
- */
-interface WaveSpeedTaskResponse {
-  id: string;
-  status: WaveSpeedStatus;
-  outputs?: string[];
-  error?: string;
-  message?: string;
-}
-
-/**
- * WaveSpeed submit response
- */
-interface WaveSpeedSubmitResponse {
-  id: string;
-  status: WaveSpeedStatus;
-  data?: {
-    id?: string;
-  };
-  error?: string;
-  message?: string;
-}
-
-/**
- * WaveSpeed prediction result response
- */
-interface WaveSpeedPredictionResponse {
-  id: string;
-  status: WaveSpeedStatus;
-  outputs?: string[];
-  output?: {
-    images?: string[];
-    videos?: string[];
-  };
-  error?: string;
-  message?: string;
-}
 
 /**
  * Get API key from localStorage (client-side only)
@@ -149,16 +103,6 @@ const WAVESPEED_MODELS: ProviderModel[] = [
 ];
 
 /**
- * Infer output type from model capabilities
- */
-function inferOutputType(capabilities: ModelCapability[]): "image" | "video" {
-  if (capabilities.includes("text-to-video") || capabilities.includes("image-to-video")) {
-    return "video";
-  }
-  return "image";
-}
-
-/**
  * WaveSpeed provider implementation
  */
 const wavespeedProvider: ProviderInterface = {
@@ -210,173 +154,35 @@ const wavespeedProvider: ProviderInterface = {
     }
 
     try {
-      const modelId = input.model.id;
-      const outputType = inferOutputType(input.model.capabilities);
-
-      // Build WaveSpeed payload
-      // WaveSpeed uses specific field names
-      const payload: Record<string, unknown> = {
-        prompt: input.prompt,
-        ...input.parameters,
-      };
-
-      // Handle image inputs
-      if (input.images && input.images.length > 0) {
-        // WaveSpeed typically expects image_url or image
-        payload.image = input.images[0];
-      }
-
-      // Apply dynamic inputs (schema-mapped connections)
-      if (input.dynamicInputs) {
-        for (const [key, value] of Object.entries(input.dynamicInputs)) {
-          if (value !== null && value !== undefined && value !== '') {
-            payload[key] = value;
-          }
-        }
-      }
-
-      // Submit task
-      const submitResponse = await fetch(`${WAVESPEED_API_BASE}/${modelId}`, {
+      const response = await fetch("/api/generate", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${apiKey}`,
           "Content-Type": "application/json",
+          "X-WaveSpeed-API-Key": apiKey,
         },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          provider: "wavespeed",
+          model: input.model,
+          prompt: input.prompt,
+          images: input.images,
+          parameters: input.parameters,
+          dynamicInputs: input.dynamicInputs,
+        }),
       });
 
-      if (!submitResponse.ok) {
-        const errorText = await submitResponse.text();
-        let errorDetail = errorText;
-        try {
-          const errorJson = JSON.parse(errorText);
-          errorDetail = errorJson.error || errorJson.message || errorText;
-        } catch {
-          // Keep original text
-        }
-
-        if (submitResponse.status === 429) {
-          return {
-            success: false,
-            error: `WaveSpeed: Rate limit exceeded. Try again in a moment.`,
-          };
-        }
-
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => null);
         return {
           success: false,
-          error: `WaveSpeed: ${errorDetail}`,
+          error: errorData?.error || `HTTP ${response.status}`,
         };
       }
 
-      const submitResult: WaveSpeedSubmitResponse = await submitResponse.json();
-      const taskId = submitResult.data?.id || submitResult.id;
-
-      if (!taskId) {
-        return {
-          success: false,
-          error: "WaveSpeed: No task ID returned from API",
-        };
-      }
-
-      // Poll for completion
-      const maxWaitTime = 5 * 60 * 1000; // 5 minutes
-      const pollInterval = 1000; // 1 second
-      const startTime = Date.now();
-
-      let currentStatus: WaveSpeedPredictionResponse = { id: taskId, status: "pending" };
-
-      while (
-        currentStatus.status !== "completed" &&
-        currentStatus.status !== "failed"
-      ) {
-        if (Date.now() - startTime > maxWaitTime) {
-          return {
-            success: false,
-            error: "WaveSpeed: Generation timed out after 5 minutes",
-          };
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, pollInterval));
-
-        const pollResponse = await fetch(
-          `${WAVESPEED_API_BASE}/predictions/${taskId}`,
-          {
-            headers: {
-              Authorization: `Bearer ${apiKey}`,
-            },
-          }
-        );
-
-        if (!pollResponse.ok) {
-          return {
-            success: false,
-            error: `WaveSpeed: Failed to poll task status: ${pollResponse.status}`,
-          };
-        }
-
-        currentStatus = await pollResponse.json();
-      }
-
-      if (currentStatus.status === "failed") {
-        return {
-          success: false,
-          error: currentStatus.error || currentStatus.message || "Generation failed",
-        };
-      }
-
-      // Extract outputs
-      let outputUrls: string[] = [];
-
-      if (currentStatus.outputs && currentStatus.outputs.length > 0) {
-        outputUrls = currentStatus.outputs;
-      } else if (currentStatus.output) {
-        if (outputType === "video" && currentStatus.output.videos) {
-          outputUrls = currentStatus.output.videos;
-        } else if (currentStatus.output.images) {
-          outputUrls = currentStatus.output.images;
-        }
-      }
-
-      if (outputUrls.length === 0) {
-        return {
-          success: false,
-          error: "WaveSpeed: No outputs in generation result",
-        };
-      }
-
-      // Fetch the first output and convert to base64
-      const outputUrl = outputUrls[0];
-      const outputResponse = await fetch(outputUrl);
-
-      if (!outputResponse.ok) {
-        return {
-          success: false,
-          error: `WaveSpeed: Failed to fetch output: ${outputResponse.status}`,
-        };
-      }
-
-      const outputArrayBuffer = await outputResponse.arrayBuffer();
-      const outputBase64 = Buffer.from(outputArrayBuffer).toString("base64");
-
-      const contentType =
-        outputResponse.headers.get("content-type") ||
-        (outputType === "video" ? "video/mp4" : "image/png");
-
-      return {
-        success: true,
-        outputs: [
-          {
-            type: outputType,
-            data: `data:${contentType};base64,${outputBase64}`,
-            url: outputUrl,
-          },
-        ],
-      };
+      return await response.json();
     } catch (error) {
-      console.error("[WaveSpeed] Generation failed:", error);
       return {
         success: false,
-        error: error instanceof Error ? error.message : "Generation failed",
+        error: `WaveSpeed: ${error instanceof Error ? error.message : "Unknown error"}`,
       };
     }
   },

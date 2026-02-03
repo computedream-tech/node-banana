@@ -246,6 +246,43 @@ describe("ModelSearchDialog", () => {
       });
     });
 
+    it("should filter to WaveSpeed provider when WaveSpeed button is clicked", async () => {
+      mockUseWorkflowStore.mockImplementation((selector) => {
+        const state = {
+          providerSettings: {
+            providers: {
+              ...defaultProviderSettings.providers,
+              wavespeed: { id: "wavespeed", name: "WaveSpeed", enabled: true, apiKey: "ws-test-key" },
+            },
+          },
+          addNode: mockAddNode,
+          incrementModalCount: mockIncrementModalCount,
+          decrementModalCount: mockDecrementModalCount,
+          recentModels: [],
+          trackModelUsage: mockTrackModelUsage,
+        };
+        return selector(state);
+      });
+
+      render(
+        <TestWrapper>
+          <ModelSearchDialog isOpen={true} onClose={vi.fn()} />
+        </TestWrapper>
+      );
+
+      await vi.advanceTimersByTimeAsync(100);
+      mockFetch.mockClear();
+
+      const wavespeedButton = screen.getByTitle("WaveSpeed");
+      fireEvent.click(wavespeedButton);
+
+      await waitFor(() => {
+        expect(mockFetch).toHaveBeenCalled();
+        const fetchCall = mockFetch.mock.calls[0][0] as string;
+        expect(fetchCall).toContain("provider=wavespeed");
+      });
+    });
+
     it("should use initialProvider when provided", async () => {
       render(
         <TestWrapper>

@@ -954,6 +954,61 @@ describe("ProjectSetupModal", () => {
       });
     });
 
+    it("should render WaveSpeed provider section", async () => {
+      render(
+        <ProjectSetupModal
+          isOpen={true}
+          onClose={vi.fn()}
+          onSave={vi.fn()}
+          mode="settings"
+        />
+      );
+
+      fireEvent.click(screen.getByText("Providers"));
+
+      await waitFor(() => {
+        expect(screen.getByText("WaveSpeed")).toBeInTheDocument();
+      });
+    });
+
+    it("should save WaveSpeed API key changes", async () => {
+      const wavespeedKey = "ws-test-key-123";
+      mockUseWorkflowStore.mockImplementation((selector) => {
+        return selector(createDefaultState({
+          workflowName: "Test Project",
+          saveDirectoryPath: "/test/path",
+          providerSettings: {
+            providers: {
+              ...defaultProviderSettings.providers,
+              wavespeed: { id: "wavespeed", name: "WaveSpeed", enabled: false, apiKey: wavespeedKey },
+            },
+          },
+        }));
+      });
+
+      const onClose = vi.fn();
+      render(
+        <ProjectSetupModal
+          isOpen={true}
+          onClose={onClose}
+          onSave={vi.fn()}
+          mode="settings"
+        />
+      );
+
+      fireEvent.click(screen.getByText("Providers"));
+
+      await waitFor(() => {
+        expect(screen.getByText("WaveSpeed")).toBeInTheDocument();
+      });
+
+      // Save should iterate over all providers including wavespeed
+      fireEvent.click(screen.getByText("Save"));
+
+      // Since wavespeed is in the providerIds list, updateProviderApiKey should be called for it
+      expect(mockUpdateProviderApiKey).toHaveBeenCalledWith("wavespeed", wavespeedKey);
+    });
+
     it("should call onClose when Save is clicked on Providers tab", async () => {
       const onClose = vi.fn();
 

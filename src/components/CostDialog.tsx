@@ -107,7 +107,7 @@ export function CostDialog({ predictedCost, incurredCost, onClose }: CostDialogP
   // Separate Gemini (reliable pricing) from external providers (unreliable pricing)
   const geminiItems = predictedCost.breakdown.filter((item) => item.provider === "gemini");
   const externalItems = predictedCost.breakdown.filter(
-    (item) => item.provider === "fal" || item.provider === "replicate"
+    (item) => item.provider === "fal" || item.provider === "replicate" || item.provider === "wavespeed"
   );
 
   // Group external items by provider

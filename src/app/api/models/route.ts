@@ -301,7 +301,15 @@ function inferWaveSpeedCapabilities(model: WaveSpeedModel): ModelCapability[] {
   const category = (model.category || model.type || "").toLowerCase();
   const searchText = `${modelId} ${name} ${description} ${category}`;
 
-  // Check for video-related keywords
+  // Prefer structured category/type from API when available
+  if (category) {
+    if (category === "text-to-video" || category === "t2v") return ["text-to-video"];
+    if (category === "image-to-video" || category === "i2v") return ["image-to-video"];
+    if (category === "text-to-image" || category === "t2i") return ["text-to-image"];
+    if (category === "image-to-image" || category === "i2i") return ["text-to-image", "image-to-image"];
+  }
+
+  // Fall back to string matching when no structured category
   const isVideoModel =
     searchText.includes("video") ||
     searchText.includes("animate") ||
